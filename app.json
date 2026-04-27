@@ -8,10 +8,26 @@
     "scheme": "clarovision",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.alberto.clarovision",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Esta app usa reconocimiento de voz para entender tus comandos.",
+        "NSMicrophoneUsageDescription": "Esta app necesita acceso al micrófono para escucharte.",
+        "NSCameraUsageDescription": "Esta app necesita la cámara para describir lo que tienes delante.",
+        "NSLocationWhenInUseUsageDescription": "Esta app usa tu ubicación para ayudarte a orientarte.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Esta app puede usar tu ubicación para darte información más precisa."
+      }
     },
+
     "android": {
+      "package": "com.alberto.clarovision",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -21,12 +37,15 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
+
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+
     "plugins": [
       "expo-router",
+      "expo-speech-recognition",
       [
         "expo-splash-screen",
         {
@@ -40,6 +59,7 @@
         }
       ]
     ],
+
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
