@@ -122,7 +122,9 @@ Responde directamente.
             {
               type: "image_url",
               image_url: {
-                url: `data:image/jpeg;base64,${image}`,
+                url: image.startsWith("data:image")
+  ? image
+  : `data:image/jpeg;base64,${image}`,
                 detail: "high",
               },
             },
