@@ -216,9 +216,13 @@ export default function HomeScreen() {
   }, [lastImageBase64]);
 
   useEffect(() => {
-  if (!permission) {
-    requestPermission();
-  }
+  const timer = setTimeout(() => {
+    if (!permission || !permission.granted) {
+      requestPermission();
+    }
+  }, 1000);
+
+  return () => clearTimeout(timer);
 }, [permission]);
 
   useEffect(() => {
