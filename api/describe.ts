@@ -69,7 +69,7 @@ Si no hay texto, dime qué hay, dónde está y si debo tener cuidado.
     })();
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       max_tokens: maxTokens,
       temperature: 0.1,
       messages: [
