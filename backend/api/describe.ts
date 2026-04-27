@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -6,9 +7,15 @@ const openai = new OpenAI({
 
 type DescribeMode = "normal" | "detail" | "read" | "money";
 
-export default async function handler(req: Request) {
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ description: "Método no permitido." });
+  }
+
   try {
-    const body = await req.json();
     const {
       image,
       mode = "normal",
@@ -17,10 +24,10 @@ export default async function handler(req: Request) {
       image?: string;
       mode?: DescribeMode;
       lastDescription?: string;
-    } = body;
+    } = req.body;
 
     if (!image) {
-      return Response.json({
+      return res.status(200).json({
         description: "No se recibió ninguna imagen.",
       });
     }
@@ -89,17 +96,14 @@ Reglas estrictas:
 - Responde SIEMPRE en español natural.
 - Frases cortas.
 - No preguntes al usuario qué quiere hacer.
-- No digas "imagen", "foto", "escena", "modelo", "IA" ni "modo prueba".
 - No inventes.
 - Si no estás seguro, di: "No estoy seguro, pero parece..."
 - Si hay peligro cercano, empieza con: "Cuidado".
 - Si hay texto visible, empieza con: "Hay texto visible".
 - Si hay texto pero no se lee bien, di: "Hay texto visible, pero no puedo leerlo con claridad".
 - Usa posiciones útiles: delante, izquierda, derecha, centro, arriba, abajo, cerca, lejos.
-- No menciones iluminación, decoración ni colores salvo que sean útiles.
 - En modo normal: máximo 3 frases.
 - En modo detalle o lectura: máximo 6 frases.
-- Responde como si la respuesta fuera leída en voz alta.
 `.trim(),
         },
         {
@@ -135,11 +139,11 @@ Responde directamente.
       response.choices[0]?.message?.content?.trim() ||
       "No he podido describir lo que tienes delante.";
 
-    return Response.json({ description });
+    return res.status(200).json({ description });
   } catch (error) {
     console.error("ClaroVision describe error:", error);
 
-    return Response.json({
+    return res.status(200).json({
       description: "No he podido analizarlo. Inténtalo otra vez.",
     });
   }
