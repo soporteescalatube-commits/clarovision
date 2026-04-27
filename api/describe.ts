@@ -1,4 +1,3 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -7,10 +6,7 @@ const openai = new OpenAI({
 
 type DescribeMode = "normal" | "detail" | "read" | "money";
 
-export default async function handler(
-  req: VercelRequest,
-  res: VercelResponse
-) {
+export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
     return res.status(405).json({ description: "Método no permitido." });
   }
