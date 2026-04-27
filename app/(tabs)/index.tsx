@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 
-const DESCRIBE_URL = "/api/describe";
+const DESCRIBE_URL = "https://clarovision-backend.vercel.app/api/describe";
 
 type Mode = "normal" | "detail" | "read" | "money";
 type Intent =
