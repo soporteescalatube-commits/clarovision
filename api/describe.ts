@@ -69,7 +69,7 @@ Si no hay texto, dime qué hay, dónde está y si debo tener cuidado.
     })();
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       max_tokens: maxTokens,
       temperature: 0.1,
       messages: [
@@ -135,12 +135,12 @@ Responde directamente.
       response.choices[0]?.message?.content?.trim() ||
       "No he podido describir lo que tienes delante.";
 
-    return res.status(200).json({ description });
-  } catch (error) {
-    console.error("ClaroVision describe error:", error);
+  return res.status(200).json({ description });
+} catch (error: any) {
+  console.error("ClaroVision describe error:", error);
 
-    return res.status(200).json({
-      description: "No he podido analizarlo. Inténtalo otra vez.",
-    });
-  }
+  return res.status(500).json({
+    description: error?.message || "Error desconocido en servidor.",
+  });
+}
 }
