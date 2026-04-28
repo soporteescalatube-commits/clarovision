@@ -12,6 +12,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -184,16 +185,17 @@ export default function HomeScreen() {
   const [lastCaptureTime, setLastCaptureTime] = useState(0);
   const [lastImageBase64, setLastImageBase64] = useState<string | undefined>();
   const [lastMessage, setLastMessage] = useState(
-  "Estoy a tu disposición. Dime qué necesitas."
-);
+    "Pulsa Hablar y dime qué necesitas."
+  );
   const [voiceText, setVoiceText] = useState("");
+  const [typedCommand, setTypedCommand] = useState("");
   const [waitingCommand, setWaitingCommand] = useState(false);
 
   const statusRef = useRef<AppStatus>("idle");
-  const listeningWantedRef = useRef(true);
   const waitingCommandRef = useRef(false);
   const lastMessageRef = useRef(lastMessage);
   const lastImageRef = useRef<string | undefined>(undefined);
+  const handlingCommandRef = useRef(false);
 
   const isBusy =
     status === "capturing" || status === "thinking" || status === "speaking";
@@ -215,22 +217,14 @@ export default function HomeScreen() {
   }, [lastImageBase64]);
 
   useEffect(() => {
-  const timer = setTimeout(() => {
-    if (!permission || !permission.granted) {
-      requestPermission();
-    }
-  }, 1000);
+    const timer = setTimeout(() => {
+      if (!permission || !permission.granted) {
+        requestPermission();
+      }
+    }, 1000);
 
-  return () => clearTimeout(timer);
-}, [permission]);
-
-  useEffect(() => {
-  const timer = setTimeout(() => {
-    speak("Estoy a tu disposición. Dime qué necesitas.");
-  }, 700);
-
-  return () => clearTimeout(timer);
-}, []);
+    return () => clearTimeout(timer);
+  }, [permission]);
 
   useSpeechRecognitionEvent("start", () => {
     setStatus("listening");
@@ -238,31 +232,29 @@ export default function HomeScreen() {
   });
 
   useSpeechRecognitionEvent("end", () => {
-    if (statusRef.current === "listening") setStatus("idle");
-
-    if (listeningWantedRef.current && !isBusyStatus()) {
-      setTimeout(() => {
-        startListening(false);
-      }, 500);
+    if (statusRef.current === "listening") {
+      setStatus("idle");
     }
   });
 
   useSpeechRecognitionEvent("error", (event) => {
     console.log("Speech error:", event);
     setStatus("error");
-
-    if (listeningWantedRef.current) {
-      setTimeout(() => {
-        startListening(false);
-      }, 1200);
-    }
+    setLastMessage(
+      "No he podido escuchar bien. Pulsa Hablar otra vez o escribe el comando."
+    );
   });
 
   useSpeechRecognitionEvent("result", (event) => {
     const transcript = event.results?.[0]?.transcript || "";
-    if (!transcript) return;
+    if (!transcript || handlingCommandRef.current) return;
 
     setVoiceText(transcript);
+
+    try {
+      ExpoSpeechRecognitionModule.stop();
+    } catch {}
+
     handleVoiceCommand(transcript);
   });
 
@@ -274,50 +266,45 @@ export default function HomeScreen() {
     );
   };
 
-  const say = (text: string) => {
-    setLastMessage(text);
-    speak(text, false);
-  };
-
-  const sayAndListen = (text: string) => {
-    setLastMessage(text);
-    speak(text, true);
-  };
-
-  const speak = (text: string, listenAfter = true) => {
+  const stopEverything = () => {
     try {
       ExpoSpeechRecognitionModule.stop();
     } catch {}
 
     Speech.stop();
+    setWaitingCommand(false);
+    setStatus("idle");
+  };
+
+  const announce = (text: string) => {
+    Speech.stop();
+    Speech.speak(text, {
+      language: "es-ES",
+      rate: 0.92,
+      pitch: 1,
+    });
+  };
+
+  const speak = (text: string) => {
+    try {
+      ExpoSpeechRecognitionModule.stop();
+    } catch {}
+
+    Speech.stop();
+    setLastMessage(text);
     setStatus("speaking");
 
     Speech.speak(text, {
       language: "es-ES",
       rate: 0.92,
       pitch: 1,
-      onDone: () => {
-        setStatus("idle");
-        if (listenAfter && listeningWantedRef.current) {
-          setTimeout(() => startListening(false), 450);
-        }
-      },
-      onStopped: () => {
-        setStatus("idle");
-        if (listenAfter && listeningWantedRef.current) {
-          setTimeout(() => startListening(false), 450);
-        }
-      },
-      onError: () => {
-        setStatus("idle");
-        if (listenAfter && listeningWantedRef.current) {
-          setTimeout(() => startListening(false), 450);
-        }
-      },
+      onDone: () => setStatus("idle"),
+      onStopped: () => setStatus("idle"),
+      onError: () => setStatus("idle"),
     });
   };
 
-  const startListening = async (withPrompt = false) => {
+  const startListening = async () => {
     if (isBusyStatus()) return;
 
     try {
@@ -327,12 +314,16 @@ export default function HomeScreen() {
         await ExpoSpeechRecognitionModule.requestPermissionsAsync();
 
       if (!result.granted) {
-        say("Necesito permiso de micrófono y reconocimiento de voz.");
+        setStatus("error");
+        setLastMessage(
+          "Necesito permiso de micrófono. Revisa los ajustes del navegador o del iPhone."
+        );
         return;
       }
 
-      if (withPrompt) setLastMessage("Te escucho.");
-
+      setWaitingCommand(true);
+      setLastMessage("Te escucho. Di describe, léeme esto, moneda, detalle o ubicación.");
+      setVoiceText("");
       setStatus("listening");
 
       ExpoSpeechRecognitionModule.start({
@@ -343,7 +334,10 @@ export default function HomeScreen() {
       });
     } catch (error) {
       console.error(error);
-      setStatus("idle");
+      setStatus("error");
+      setLastMessage(
+        "No pude activar el micrófono. Pulsa otra vez o escribe el comando."
+      );
     }
   };
 
@@ -351,87 +345,103 @@ export default function HomeScreen() {
     try {
       ExpoSpeechRecognitionModule.stop();
     } catch {}
-    setStatus("idle");
+
+    if (statusRef.current === "listening") {
+      setStatus("idle");
+    }
   };
 
   const handleVoiceCommand = async (text: string) => {
-    const intent = detectIntent(text);
+    if (handlingCommandRef.current) return;
+    handlingCommandRef.current = true;
 
-    if (intent === "stop") {
-      Speech.stop();
-      setWaitingCommand(false);
-      setLastMessage("Silencio.");
-      setStatus("idle");
-      setTimeout(() => startListening(false), 600);
-      return;
-    }
+    try {
+      const intent = detectIntent(text);
 
-    if (intent === "wake") {
-      setWaitingCommand(true);
-      sayAndListen("Te escucho. ¿Qué necesitas?");
-      return;
-    }
+      if (intent === "stop") {
+        stopEverything();
+        setLastMessage("Silencio.");
+        return;
+      }
 
-    if (intent === "unknown") {
-      if (waitingCommandRef.current) {
+      if (intent === "wake") {
+        setWaitingCommand(true);
+        speak("Te escucho. Pulsa Hablar y dime qué necesitas.");
+        return;
+      }
+
+      if (intent === "unknown") {
         setWaitingCommand(false);
-        sayAndListen(
+        speak(
           "No he entendido. Puedes decir: describe, léeme esto, qué moneda es, más detalle, repite o dónde estoy."
         );
+        return;
       }
-      return;
-    }
 
-    setWaitingCommand(false);
+      setWaitingCommand(false);
 
-    if (intent === "repeat") {
-      speak(lastMessageRef.current, true);
-      return;
-    }
+      if (intent === "repeat") {
+        speak(lastMessageRef.current);
+        return;
+      }
 
-    if (intent === "help") {
-      sayAndListen(
-        "Puedes decir: qué tengo delante, léeme esto, qué moneda es, más detalle, repite, dónde estoy o calla."
-      );
-      return;
-    }
+      if (intent === "help") {
+        speak(
+          "Puedes decir: describe, léeme esto, qué moneda es, más detalle, repite, dónde estoy o calla."
+        );
+        return;
+      }
 
-    if (intent === "location") {
-      await getLocation();
-      return;
-    }
+      if (intent === "location") {
+        await getLocation();
+        return;
+      }
 
-    if (intent === "detail") {
-      await moreDetail();
-      return;
-    }
+      if (intent === "detail") {
+        await moreDetail();
+        return;
+      }
 
-    if (intent === "read") {
-      await captureAndAnalyze("read");
-      return;
-    }
+      if (intent === "read") {
+        await captureAndAnalyze("read");
+        return;
+      }
 
-    if (intent === "money") {
-      await captureAndAnalyze("money");
-      return;
-    }
+      if (intent === "money") {
+        await captureAndAnalyze("money");
+        return;
+      }
 
-    if (intent === "describe") {
-      await captureAndAnalyze("normal");
-      return;
+      if (intent === "describe") {
+        await captureAndAnalyze("normal");
+        return;
+      }
+    } finally {
+      setTimeout(() => {
+        handlingCommandRef.current = false;
+      }, 700);
     }
+  };
+
+  const submitTypedCommand = () => {
+    const text = typedCommand.trim();
+    if (!text) return;
+
+    setVoiceText(text);
+    setTypedCommand("");
+    handleVoiceCommand(text);
   };
 
   const captureAndAnalyze = async (mode: Mode) => {
     const now = Date.now();
 
     if (now - lastCaptureTime < 3000) {
-      sayAndListen("Espera un momento antes de volver a analizar.");
+      speak("Espera un momento antes de volver a analizar.");
       return;
     }
 
     if (!cameraRef.current) {
-      sayAndListen("La cámara no está lista.");
+      speak("La cámara no está lista.");
       return;
     }
 
@@ -456,13 +466,13 @@ export default function HomeScreen() {
 
       if (mode === "read") {
         setLastMessage("Leyendo.");
-        speak("Leyendo.", false);
+        announce("Leyendo.");
       } else if (mode === "money") {
         setLastMessage("Analizando dinero.");
-        speak("Analizando dinero.", false);
+        announce("Analizando dinero.");
       } else {
         setLastMessage("Analizando.");
-        speak("Analizando.", false);
+        announce("Analizando.");
       }
 
       const description = await describeImage(
@@ -471,10 +481,10 @@ export default function HomeScreen() {
         lastMessageRef.current
       );
 
-      sayAndListen(description);
+      speak(description);
     } catch (error) {
       console.error("Error capturando imagen:", error);
-      sayAndListen("No se pudo analizar. Inténtalo otra vez.");
+      speak("No se pudo analizar. Inténtalo otra vez.");
     }
   };
 
@@ -482,7 +492,7 @@ export default function HomeScreen() {
     if (isBusyStatus()) return;
 
     if (!lastImageRef.current) {
-      sayAndListen("Primero dime qué tengo delante para poder ampliar detalles.");
+      speak("Primero dime qué tengo delante para poder ampliar detalles.");
       return;
     }
 
@@ -491,7 +501,7 @@ export default function HomeScreen() {
 
       setStatus("thinking");
       setLastMessage("Ampliando detalles.");
-      speak("Ampliando detalles.", false);
+      announce("Ampliando detalles.");
 
       const description = await describeImage(
         lastImageRef.current,
@@ -499,10 +509,10 @@ export default function HomeScreen() {
         lastMessageRef.current
       );
 
-      sayAndListen(description);
+      speak(description);
     } catch (error) {
       console.error("Error pidiendo más detalle:", error);
-      sayAndListen("No pude ampliar la descripción.");
+      speak("No pude ampliar la descripción.");
     }
   };
 
@@ -517,12 +527,12 @@ export default function HomeScreen() {
         await Location.requestForegroundPermissionsAsync();
 
       if (locationStatus !== "granted") {
-        sayAndListen("No tengo permiso para acceder a la ubicación.");
+        speak("No tengo permiso para acceder a la ubicación.");
         return;
       }
 
       setLastMessage("Buscando ubicación.");
-      speak("Buscando ubicación.", false);
+      announce("Buscando ubicación.");
 
       const currentLocation = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
@@ -560,24 +570,20 @@ export default function HomeScreen() {
             4
           )}, longitud ${longitude.toFixed(4)}.`;
 
-      sayAndListen(msg);
+      speak(msg);
     } catch (error) {
       console.error(error);
-      sayAndListen("No pude obtener la ubicación.");
+      speak("No pude obtener la ubicación.");
     }
   };
 
   const getStatusText = () => {
-    if (status === "listening") {
-      return waitingCommand
-        ? "Te escucho. Di tu comando."
-        : "Escuchando. Di ClaroVision o un comando.";
-    }
+    if (status === "listening") return "Te escucho.";
     if (status === "capturing") return "Capturando...";
     if (status === "thinking") return "Analizando...";
-    if (status === "speaking") return "Hablando...";
-    if (status === "error") return "Hubo un error.";
-    return "Manos libres activo.";
+    if (status === "speaking") return "Respondiendo...";
+    if (status === "error") return "Pulsa Hablar otra vez.";
+    return "Pulsa Hablar.";
   };
 
   if (!permission) {
@@ -635,7 +641,7 @@ export default function HomeScreen() {
           style={styles.bigButton}
           onPress={() => {
             setCameraActive(true);
-            sayAndListen("Cámara activada.");
+            speak("Cámara activada.");
           }}
           accessibilityRole="button"
           accessibilityLabel="Activar cámara"
@@ -666,81 +672,135 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.bottomOverlay}>
-        <Pressable
-          style={[
-            styles.voiceButton,
-            status === "listening" && styles.voiceButtonActive,
-            isBusy && styles.disabled,
-          ]}
-          onPress={() => startListening(true)}
-          disabled={status === "capturing" || status === "thinking"}
-          accessibilityRole="button"
-          accessibilityLabel="Escuchar ahora"
-        >
-          <Text style={styles.voiceButtonText}>
-            {status === "listening" ? "Escuchando..." : "Manos libres"}
-          </Text>
-          <Text style={styles.voiceButtonHint}>
-            Di “ClaroVision”, “analiza”, “léeme esto” o “repite”
-          </Text>
-        </Pressable>
+  <View style={styles.messagePanel}>
+    {!!voiceText && (
+      <Text style={styles.voiceText} numberOfLines={1}>
+        Has dicho: {voiceText}
+      </Text>
+    )}
 
-        <Pressable
-          style={styles.emergencyButton}
-          onPress={() => {
-            Speech.stop();
-            pauseListening();
-            setWaitingCommand(false);
-            setLastMessage("Silencio.");
-            setTimeout(() => startListening(false), 700);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Callar"
-        >
-          <Text style={styles.emergencyButtonText}>Callar</Text>
-        </Pressable>
+    <Text style={styles.lastMessage} numberOfLines={2}>
+      {lastMessage}
+    </Text>
+  </View>
 
-        {!!voiceText && (
-          <Text style={styles.voiceText} numberOfLines={2}>
-            Has dicho: {voiceText}
-          </Text>
-        )}
+  <View style={styles.mainControls}>
+    <Pressable
+      style={[
+        styles.voiceButton,
+        status === "listening" && styles.voiceButtonActive,
+        isBusy && styles.disabled,
+      ]}
+      onPress={status === "listening" ? pauseListening : startListening}
+      disabled={status === "capturing" || status === "thinking"}
+      accessibilityRole="button"
+      accessibilityLabel={
+        status === "listening" ? "Parar de escuchar" : "Hablar ahora"
+      }
+    >
+      <Text style={styles.voiceButtonText}>
+        {status === "listening" ? "Parar" : "Hablar"}
+      </Text>
+    </Pressable>
 
-        <Text style={styles.lastMessage} numberOfLines={4}>
-          {lastMessage}
-        </Text>
+    <Pressable
+      style={styles.emergencyButton}
+      onPress={() => {
+        stopEverything();
+        setLastMessage("Silencio.");
+      }}
+      accessibilityRole="button"
+      accessibilityLabel="Callar"
+    >
+      <Text style={styles.emergencyButtonText}>Callar</Text>
+    </Pressable>
+  </View>
 
-        <View style={styles.smallActions}>
-          <Pressable
-            style={styles.smallButton}
-            onPress={() => captureAndAnalyze("normal")}
-            disabled={isBusy}
-            accessibilityRole="button"
-            accessibilityLabel="Describir"
-          >
-            <Text style={styles.smallButtonText}>Describir</Text>
-          </Pressable>
+  <View style={styles.quickActions}>
+    <Pressable
+      style={styles.quickButton}
+      onPress={() => captureAndAnalyze("normal")}
+      disabled={isBusy}
+      accessibilityRole="button"
+      accessibilityLabel="Describir lo que hay delante"
+    >
+      <Text style={styles.quickButtonText}>Describir</Text>
+    </Pressable>
 
-          <Pressable
-            style={styles.smallButton}
-            onPress={moreDetail}
-            disabled={isBusy}
-            accessibilityRole="button"
-            accessibilityLabel="Más detalle"
-          >
-            <Text style={styles.smallButtonText}>Detalle</Text>
-          </Pressable>
+    <Pressable
+      style={styles.quickButton}
+      onPress={() => captureAndAnalyze("read")}
+      disabled={isBusy}
+      accessibilityRole="button"
+      accessibilityLabel="Leer texto"
+    >
+      <Text style={styles.quickButtonText}>Leer</Text>
+    </Pressable>
 
-          <Pressable
-            style={styles.smallButton}
-            onPress={() => speak(lastMessageRef.current, true)}
-            accessibilityRole="button"
-            accessibilityLabel="Repetir"
-          >
-            <Text style={styles.smallButtonText}>Repetir</Text>
-          </Pressable>
-        </View>
-      </View>
+    <Pressable
+      style={styles.quickButton}
+      onPress={moreDetail}
+      disabled={isBusy}
+      accessibilityRole="button"
+      accessibilityLabel="Más detalle"
+    >
+      <Text style={styles.quickButtonText}>Detalle</Text>
+    </Pressable>
+  </View>
+
+  <View style={styles.textCommandBox}>
+    <TextInput
+      style={styles.textInput}
+      placeholder="Escribe si falla el micro"
+      placeholderTextColor="#cbd5e1"
+      value={typedCommand}
+      onChangeText={setTypedCommand}
+      onSubmitEditing={submitTypedCommand}
+      returnKeyType="send"
+      accessibilityLabel="Escribir comando"
+    />
+
+    <Pressable
+      style={styles.sendButton}
+      onPress={submitTypedCommand}
+      accessibilityRole="button"
+      accessibilityLabel="Enviar comando escrito"
+    >
+      <Text style={styles.sendButtonText}>Enviar</Text>
+    </Pressable>
+  </View>
+
+  <View style={styles.smallActions}>
+    <Pressable
+      style={styles.smallButton}
+      onPress={() => captureAndAnalyze("money")}
+      disabled={isBusy}
+      accessibilityRole="button"
+      accessibilityLabel="Analizar dinero"
+    >
+      <Text style={styles.smallButtonText}>Dinero</Text>
+    </Pressable>
+
+    <Pressable
+      style={styles.smallButton}
+      onPress={() => speak(lastMessageRef.current)}
+      accessibilityRole="button"
+      accessibilityLabel="Repetir respuesta"
+    >
+      <Text style={styles.smallButtonText}>Repetir</Text>
+    </Pressable>
+
+    <Pressable
+      style={styles.smallButton}
+      onPress={getLocation}
+      disabled={isBusy}
+      accessibilityRole="button"
+      accessibilityLabel="Dónde estoy"
+    >
+      <Text style={styles.smallButtonText}>Ubicación</Text>
+    </Pressable>
+  </View>
+</View>
     </View>
   );
 }
@@ -750,20 +810,20 @@ const styles = StyleSheet.create({
   camera: { flex: 1 },
 
   topOverlay: {
-    position: "absolute",
-    top: 54,
-    left: 24,
-    right: 24,
-    alignItems: "center",
-  },
+  position: "absolute",
+  top: 46,
+  left: 16,
+  right: 16,
+  alignItems: "center",
+},
 
   logo: {
-    width: 112,
-    height: 112,
-    marginBottom: 10,
-    resizeMode: "contain",
-    borderRadius: 24,
-  },
+  width: 76,
+  height: 76,
+  marginBottom: 6,
+  resizeMode: "contain",
+  borderRadius: 18,
+},
 
   logoLarge: {
     width: 190,
@@ -774,35 +834,48 @@ const styles = StyleSheet.create({
   },
 
   status: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "900",
-    textAlign: "center",
-    backgroundColor: "rgba(0,0,0,0.82)",
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 18,
-    overflow: "hidden",
-  },
+  color: "#fff",
+  fontSize: 18,
+  fontWeight: "900",
+  textAlign: "center",
+  backgroundColor: "rgba(0,0,0,0.78)",
+  paddingHorizontal: 14,
+  paddingVertical: 9,
+  borderRadius: 14,
+  overflow: "hidden",
+},
 
   bottomOverlay: {
     position: "absolute",
-    left: 18,
-    right: 18,
-    bottom: 18,
+    left: 12,
+    right: 12,
+    bottom: 12,
     alignItems: "center",
   },
+messagePanel: {
+  width: "100%",
+  backgroundColor: "rgba(0,0,0,0.72)",
+  borderRadius: 18,
+  paddingHorizontal: 12,
+  paddingVertical: 8,
+  marginBottom: 8,
+},
 
+mainControls: {
+  width: "100%",
+  flexDirection: "row",
+  gap: 10,
+},
   voiceButton: {
-    width: "100%",
-    minHeight: 116,
-    borderRadius: 34,
-    backgroundColor: "#22c55e",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 6,
-    borderColor: "#bbf7d0",
-  },
+  flex: 1,
+  minHeight: 74,
+  borderRadius: 24,
+  backgroundColor: "#22c55e",
+  alignItems: "center",
+  justifyContent: "center",
+  borderWidth: 4,
+  borderColor: "#bbf7d0",
+},
 
   voiceButtonActive: {
     backgroundColor: "#ef4444",
@@ -810,15 +883,15 @@ const styles = StyleSheet.create({
   },
 
   disabled: {
-    opacity: 0.7,
+    opacity: 0.65,
   },
 
   voiceButtonText: {
-    color: "#000",
-    fontSize: 34,
-    fontWeight: "900",
-    textAlign: "center",
-  },
+  color: "#000",
+  fontSize: 30,
+  fontWeight: "900",
+  textAlign: "center",
+},
 
   voiceButtonHint: {
     marginTop: 6,
@@ -829,17 +902,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
 
+  quickActions: {
+  flexDirection: "row",
+  gap: 8,
+  marginTop: 8,
+  width: "100%",
+},
+
+  quickButton: {
+  flex: 1,
+  minHeight: 50,
+  borderRadius: 16,
+  backgroundColor: "#fde047",
+  alignItems: "center",
+  justifyContent: "center",
+  borderWidth: 2,
+  borderColor: "#000",
+},
+
+  quickButtonText: {
+  color: "#000",
+  fontSize: 16,
+  fontWeight: "900",
+},
+
   emergencyButton: {
-    marginTop: 12,
-    width: "100%",
-    minHeight: 58,
-    borderRadius: 22,
-    backgroundColor: "#111",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 3,
-    borderColor: "#fff",
-  },
+  width: 116,
+  minHeight: 74,
+  borderRadius: 24,
+  backgroundColor: "#111",
+  alignItems: "center",
+  justifyContent: "center",
+  borderWidth: 3,
+  borderColor: "#fff",
+},
 
   emergencyButtonText: {
     color: "#fff",
@@ -848,29 +944,54 @@ const styles = StyleSheet.create({
   },
 
   voiceText: {
-    marginTop: 10,
-    color: "#bbf7d0",
-    fontSize: 16,
-    lineHeight: 22,
-    textAlign: "center",
-    backgroundColor: "rgba(0,0,0,0.75)",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
-    overflow: "hidden",
-  },
+  color: "#bbf7d0",
+  fontSize: 14,
+  lineHeight: 19,
+  textAlign: "center",
+  marginBottom: 4,
+},
 
   lastMessage: {
-    marginTop: 10,
-    color: "#fff",
-    fontSize: 17,
-    lineHeight: 23,
-    textAlign: "center",
-    backgroundColor: "rgba(0,0,0,0.78)",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-    overflow: "hidden",
+  color: "#fff",
+  fontSize: 16,
+  lineHeight: 21,
+  textAlign: "center",
+},
+
+  textCommandBox: {
+  marginTop: 8,
+  flexDirection: "row",
+  gap: 8,
+  width: "100%",
+},
+
+  textInput: {
+  flex: 1,
+  minHeight: 46,
+  borderRadius: 14,
+  backgroundColor: "rgba(15,23,42,0.92)",
+  color: "#fff",
+  paddingHorizontal: 12,
+  fontSize: 15,
+  borderWidth: 2,
+  borderColor: "#94a3b8",
+},
+
+  sendButton: {
+  minWidth: 82,
+  minHeight: 46,
+  borderRadius: 14,
+  backgroundColor: "#38bdf8",
+  alignItems: "center",
+  justifyContent: "center",
+  borderWidth: 2,
+  borderColor: "#000",
+},
+
+  sendButtonText: {
+    color: "#000",
+    fontSize: 16,
+    fontWeight: "900",
   },
 
   smallActions: {
@@ -881,19 +1002,19 @@ const styles = StyleSheet.create({
   },
 
   smallButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 16,
-    backgroundColor: "#fde047",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#000",
-  },
+  flex: 1,
+  minHeight: 44,
+  borderRadius: 14,
+  backgroundColor: "#fff",
+  alignItems: "center",
+  justifyContent: "center",
+  borderWidth: 2,
+  borderColor: "#000",
+},
 
   smallButtonText: {
     color: "#000",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "900",
   },
 
